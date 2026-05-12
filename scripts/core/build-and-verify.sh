@@ -161,27 +161,26 @@ case "$INSTALLER_TYPE" in
         if ! $attached; then
           record "3. build pkg" "FAIL" "hdiutil attach failed after retries"
         else
-          STAGE="$APP_WORK/stage"
-          mkdir -p "$STAGE/Applications"
-          # rsync preserves resource forks/symlinks/perms better than cp.
-          if rsync -a --delete "$MOUNT_POINT/$APP_BUNDLE_NAME" "$STAGE/Applications/" >>"$LOG_FILE" 2>&1; then
+          SRC_APP="$MOUNT_POINT/$APP_BUNDLE_NAME"
+          if [[ ! -d "$SRC_APP" ]]; then
             hdiutil detach "$MOUNT_POINT" -force >>"$LOG_FILE" 2>&1 || true
+            record "3. build pkg" "FAIL" "$APP_BUNDLE_NAME not found at mount root"
+          else
             PKG_PATH="$APP_WORK/${APP_SLUG}.pkg"
-            # Identifier is informational only — pkgutil --pkgs lists it after install.
+            # --component is single-bundle mode: forces install at --install-location regardless of
+            # BundleIsRelocatable inferred from nested helper .app bundles (Slack Helper.app etc.).
             # We intentionally do NOT sign here (per repo policy; MDM does not require it).
-            if pkgbuild --root "$STAGE" \
+            if pkgbuild --component "$SRC_APP" \
+                        --install-location "/Applications" \
                         --identifier "local.jamf-pkg-builder.${APP_SLUG}" \
                         --version "1.0.0" \
-                        --install-location "/" \
                         "$PKG_PATH" >>"$LOG_FILE" 2>&1; then
               record "3. build pkg" "OK" "$(basename "$PKG_PATH")"
             else
               record "3. build pkg" "FAIL" "pkgbuild failed"
               PKG_PATH=""
             fi
-          else
             hdiutil detach "$MOUNT_POINT" -force >>"$LOG_FILE" 2>&1 || true
-            record "3. build pkg" "FAIL" "rsync from dmg failed"
           fi
         fi
       fi
