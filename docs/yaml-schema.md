@@ -50,7 +50,11 @@
 | `min_version` | optional | string | `CFBundleShortVersionString` との `sort -V` 比較に使う最小バージョン |
 | `ea_script` | ※ | string | カスタム検出スクリプトのパス。`app_path` が使えないアプリ向け |
 
-※ `app_path` と `ea_script` のいずれか片方は必須。
+※ `app_path` と `ea_script` のいずれか片方は必須。**両方併用も可**:
+
+- `ea_script` 単独: 検出ロジックを完全カスタム化。step 8 (arch check) と step 11 (removal verify) は app_path がないのでスキップされる
+- `app_path` 単独: `Info.plist` の `CFBundleShortVersionString` と `min_version` を比較
+- **両方併用**: step 7 (検出) は `ea_script` 優先、step 8 / 11 は `app_path` を使う（Cloudflare WARP のように `warp-cli` 状態と `.app` バンドル位置の両方を持つアプリ向け）
 
 カスタム検出スクリプトは stdout に `installed` / `true` / `yes` / `found` のいずれかを含めれば「インストール済み」と判定される。
 

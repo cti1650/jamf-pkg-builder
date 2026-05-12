@@ -10,7 +10,10 @@ installer:
   repackage: false
 
 detect:
+  # ea_script is the primary check (warp-cli state can differ from .app presence),
+  # but app_path is also supplied so the CI can run step 8 (arch check) and step 11 (removal check).
   ea_script: scripts/apps/cloudflare-warp/detect.sh
+  app_path: /Applications/Cloudflare WARP.app
 
 uninstall:
   type: script
