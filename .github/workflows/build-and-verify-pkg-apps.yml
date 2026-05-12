@@ -34,35 +34,42 @@ jobs:
           fetch-depth: 2
       - id: collect
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           # On manual/push-to-default-branch, run everything.
           # On PR / branch push, only run for the apps whose YAML or per-app
           # script directory changed; if scripts/core/** changed, run all.
-          all_apps=$(ls apps/*.yml 2>/dev/null | xargs -n1 basename | sed 's/\.yml$//' | sort -u)
+          all_apps=$(for f in apps/*.yml; do [[ -e "$f" ]] || continue; basename "$f" .yml; done | sort -u)
           run_all=false
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then run_all=true; fi
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" =~ refs/heads/(master|main) ]]; then run_all=true; fi
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then run_all=true; fi
+          if [[ "$EVENT_NAME" == "push" && "$REF" =~ ^refs/heads/(master|main)$ ]]; then run_all=true; fi
 
           if $run_all; then
             apps="$all_apps"
           else
-            base="${{ github.event.pull_request.base.sha || github.event.before }}"
-            head="${{ github.event.pull_request.head.sha || github.sha }}"
-            changed=$(git diff --name-only "$base" "$head" || true)
+            base="${BASE_SHA:-$BEFORE_SHA}"
+            head="${HEAD_SHA:-$AFTER_SHA}"
+            changed=$(git diff --name-only "$base" "$head" 2>/dev/null || true)
             echo "Changed files:"; echo "$changed"
             if echo "$changed" | grep -qE '^scripts/core/'; then
               apps="$all_apps"
             else
-              touched=$(echo "$changed" | awk -F/ '
+              apps=$(echo "$changed" | awk -F/ '
                 /^apps\// && /\.yml$/ { sub(/^apps\//,""); sub(/\.yml$/,""); print }
                 /^scripts\/apps\// { print $3 }
               ' | sort -u)
-              apps="$touched"
             fi
           fi
-          # Emit JSON array.
-          json=$(printf '%s\n' $apps | jq -R . | jq -s -c .)
+          # Emit a JSON array (empty array if nothing matched — drops blank lines).
+          json=$(printf '%s\n' "$apps" | awk 'NF' | jq -R . | jq -s -c .)
+          [[ -z "$json" ]] && json='[]'
           echo "apps=$json" >> "$GITHUB_OUTPUT"
           echo "selected apps: $json"
 
