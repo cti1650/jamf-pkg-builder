@@ -1,0 +1,16 @@
+.DS_Store
+*.log
+*.tmp
+
+# Build outputs (CI artifacts only; do not commit)
+build/
+artifacts/
+*.pkg
+*.dmg
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db

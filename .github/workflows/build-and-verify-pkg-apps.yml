@@ -1,0 +1,111 @@
+name: build-and-verify-pkg-apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - "apps/**"
+      - "scripts/**"
+      - ".github/workflows/build-and-verify-pkg-apps.yml"
+      - ".github/workflows/build-and-verify-pkg.yml"
+  pull_request:
+    paths:
+      - "apps/**"
+      - "scripts/**"
+      - ".github/workflows/build-and-verify-pkg-apps.yml"
+      - ".github/workflows/build-and-verify-pkg.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-and-verify-pkg-apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-affected-apps:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.collect.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          # On manual/push-to-default-branch, run everything.
+          # On PR / branch push, only run for the apps whose YAML or per-app
+          # script directory changed; if scripts/core/** changed, run all.
+          all_apps=$(ls apps/*.yml 2>/dev/null | xargs -n1 basename | sed 's/\.yml$//' | sort -u)
+          run_all=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then run_all=true; fi
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" =~ refs/heads/(master|main) ]]; then run_all=true; fi
+
+          if $run_all; then
+            apps="$all_apps"
+          else
+            base="${{ github.event.pull_request.base.sha || github.event.before }}"
+            head="${{ github.event.pull_request.head.sha || github.sha }}"
+            changed=$(git diff --name-only "$base" "$head" || true)
+            echo "Changed files:"; echo "$changed"
+            if echo "$changed" | grep -qE '^scripts/core/'; then
+              apps="$all_apps"
+            else
+              touched=$(echo "$changed" | awk -F/ '
+                /^apps\// && /\.yml$/ { sub(/^apps\//,""); sub(/\.yml$/,""); print }
+                /^scripts\/apps\// { print $3 }
+              ' | sort -u)
+              apps="$touched"
+            fi
+          fi
+          # Emit JSON array.
+          json=$(printf '%s\n' $apps | jq -R . | jq -s -c .)
+          echo "apps=$json" >> "$GITHUB_OUTPUT"
+          echo "selected apps: $json"
+
+  build-and-verify:
+    needs: detect-affected-apps
+    if: needs.detect-affected-apps.outputs.apps != '[]' && needs.detect-affected-apps.outputs.apps != ''
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.detect-affected-apps.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show env
+        run: |
+          sw_vers && uname -m
+          yq --version
+
+      - name: Run build-and-verify
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          chmod +x scripts/core/build-and-verify.sh
+          ./scripts/core/build-and-verify.sh "apps/${APP}.yml"
+
+      - name: Upload pkg artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-pkg-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ matrix.app }}.pkg
+            ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ matrix.app }}-build-and-verify.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload EA script artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-ea-${{ github.run_number }}
+          path: ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ matrix.app }}-ea.sh
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,21 @@
+name: Slack
+
+download:
+  url: https://slack.com/ssb/download-osx-universal
+  file: Slack.dmg
+
+installer:
+  type: dmg
+  app_name: Slack.app
+  repackage: true
+
+detect:
+  app_path: /Applications/Slack.app
+  min_version: "4.0"
+
+uninstall:
+  type: script
+  script: scripts/apps/slack/uninstall.sh
+
+extension_attribute:
+  script: scripts/apps/slack/ea.sh

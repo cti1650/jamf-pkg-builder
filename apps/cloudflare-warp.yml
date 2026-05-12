@@ -1,0 +1,19 @@
+name: Cloudflare WARP
+
+download:
+  url: https://1.1.1.1/mac/install
+  file: Cloudflare_WARP.pkg
+
+installer:
+  type: pkg
+  repackage: false
+
+detect:
+  ea_script: scripts/apps/cloudflare-warp/detect.sh
+
+uninstall:
+  type: script
+  script: scripts/apps/cloudflare-warp/uninstall.sh
+
+extension_attribute:
+  script: scripts/apps/cloudflare-warp/ea.sh

@@ -1,0 +1,63 @@
+name: build-and-verify-pkg
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to build & verify"
+        required: true
+        type: choice
+        options:
+          - cloudflare-warp
+          - google-chrome
+          - slack
+          - zoom
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-and-verify-pkg-${{ github.event.inputs.app }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show macOS / tools versions
+        run: |
+          sw_vers
+          uname -m
+          which yq curl pkgutil installer hdiutil pkgbuild
+          yq --version
+
+      - name: Run build-and-verify
+        env:
+          APP: ${{ github.event.inputs.app }}
+        run: |
+          chmod +x scripts/core/build-and-verify.sh
+          ./scripts/core/build-and-verify.sh "apps/${APP}.yml"
+
+      - name: Upload pkg artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.app }}-pkg-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ github.event.inputs.app }}.pkg
+            ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ github.event.inputs.app }}-build-and-verify.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload EA script artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.app }}-ea-${{ github.run_number }}
+          path: ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ github.event.inputs.app }}-ea.sh
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,20 @@
+name: Zoom Workplace
+
+download:
+  url: https://zoom.us/client/latest/ZoomInstallerIT.pkg
+  file: ZoomInstallerIT.pkg
+
+installer:
+  type: pkg
+  repackage: false
+
+detect:
+  app_path: /Applications/zoom.us.app
+  min_version: "5.0"
+
+uninstall:
+  type: script
+  script: scripts/apps/zoom/uninstall.sh
+
+extension_attribute:
+  script: scripts/apps/zoom/ea.sh
