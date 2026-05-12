@@ -1,7 +1,8 @@
 name: Cloudflare WARP
 
 download:
-  url: https://1.1.1.1/mac/install
+  # Canonical latest-PKG endpoint; redirects to the versioned URL under downloads.cloudflareclient.com.
+  url: https://downloads.cloudflareclient.com/v1/download/macos/ga
   file: Cloudflare_WARP.pkg
 
 installer:
