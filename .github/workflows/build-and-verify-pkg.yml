@@ -11,6 +11,7 @@ on:
           - cloudflare-warp
           - google-chrome
           - slack
+          - takumi-guard
           - zoom
 
 permissions:

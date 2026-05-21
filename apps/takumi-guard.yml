@@ -1,0 +1,26 @@
+name: Takumi Guard
+
+# Takumi Guard はインストーラを持たないレジストリプロキシ (SaaS) で、
+# 各パッケージマネージャの registry URL を Flatt Security のエンドポイントに
+# 差し替えることで導入する。よって installer.type は script_based を採用し、
+# 「設定ファイル一括配布スクリプト」を Jamf Pro ポリシーで配る運用とする。
+#
+# 3 日 quarantine は registry エンドポイント側のデフォルト動作 (PyPI は自動、
+# npm は対応 endpoint を指定) なので、クライアント側で遅延日数を指定する設定は不要。
+# 詳細は scripts/apps/takumi-guard/install.sh 冒頭のコメントを参照。
+
+download: {}  # script_based なのでダウンロード対象なし
+
+installer:
+  type: script_based
+
+detect:
+  # 「全ユーザの設定ファイルに Takumi Guard の registry が書かれているか」を EA で判定する。
+  ea_script: scripts/apps/takumi-guard/detect.sh
+
+uninstall:
+  type: script
+  script: scripts/apps/takumi-guard/uninstall.sh
+
+extension_attribute:
+  script: scripts/apps/takumi-guard/ea.sh
