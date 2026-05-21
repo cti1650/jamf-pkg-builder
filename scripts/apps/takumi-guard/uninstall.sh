@@ -1,10 +1,25 @@
 #!/bin/bash
-# Takumi Guard の registry 設定を解除する。
-# install.sh が残した .takumi-guard.bak があれば復元し、なければ managed-by 行と
-# それに続く registry/index-url 設定行のみを削除する。
+# Takumi Guard の registry 設定および minimumReleaseAge 設定を解除する。
+# install.sh が残した .takumi-guard.bak があれば復元し、なければ
+# "# managed-by: takumi-guard" 行とそれに続く管理ブロック (空行 or 別コメントに当たるまで) を削除する。
 set -euo pipefail
 
-MARK="# managed-by: takumi-guard (jamf-pkg-builder)"
+strip_managed_block() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  /usr/bin/awk -v mark="managed-by: takumi-guard" '
+    BEGIN { skip = 0 }
+    {
+      if (index($0, mark) > 0) { skip = 1; next }
+      if (skip) {
+        if ($0 ~ /^[[:space:]]*$/) { skip = 0; print; next }
+        if ($0 ~ /^#/)             { skip = 0; print; next }
+        next
+      }
+      print
+    }
+  ' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
+}
 
 restore_or_strip() {
   local f="$1"
@@ -13,8 +28,7 @@ restore_or_strip() {
     mv "${f}.takumi-guard.bak" "$f"
     return 0
   fi
-  # MARK と直後の 1〜2 行 (registry / index-url / [install] / npmRegistryServer) を落とす。
-  /usr/bin/sed -i '' "\#${MARK}#,+2d" "$f" || true
+  strip_managed_block "$f"
 }
 
 revert_for_user() {
