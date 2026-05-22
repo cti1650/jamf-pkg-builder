@@ -13,7 +13,8 @@ for h in /Users/*; do
     "$h/Library/Application Support/pip/pip.conf" \
     "$h/.config/pip/pip.conf" \
     "$h/.config/uv/uv.toml" \
-    "$h/Library/Application Support/pypoetry/config.toml"; do
+    "$h/Library/Application Support/pypoetry/config.toml" \
+    "$h/.bundle/config"; do
     if [[ -f "$f" ]] && /usr/bin/grep -q "managed-by: takumi-guard" "$f" 2>/dev/null; then
       found=0
       break 2

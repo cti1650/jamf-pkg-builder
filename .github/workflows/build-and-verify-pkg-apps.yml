@@ -90,6 +90,12 @@ jobs:
           sw_vers && uname -m
           yq --version
 
+      - name: Run takumi-guard unit tests
+        if: matrix.app == 'takumi-guard'
+        run: |
+          chmod +x scripts/apps/takumi-guard/test/test-install.sh
+          scripts/apps/takumi-guard/test/test-install.sh
+
       - name: Run build-and-verify
         env:
           APP: ${{ matrix.app }}

@@ -19,6 +19,7 @@
 #   - pip   ~/Library/Application Support/pip/pip.conf      : index-url (3 日機能なし)         — Takumi Guard 側 72h quarantine で代替
 #   - uv    ~/.config/uv/uv.toml                            : exclude-newer = "3 days"       (duration)  ※ uv 全バージョン
 #   - poetry ~/Library/Application Support/pypoetry/config.toml : solver.min-release-age = 3 (日)        ※ Poetry 2.4+
+#   - bundler ~/.bundle/config                              : mirror.https://rubygems.org → rubygems.flatt.tech (3 日機能なし) — Anonymous tier 利用
 #
 # 冪等性とユーザ設定の尊重:
 #   - 既存ファイルがあれば .takumi-guard.bak を残す (監査用)
@@ -33,6 +34,7 @@ set -euo pipefail
 
 NPM_REGISTRY="https://npm.flatt.tech/"
 PYPI_INDEX_URL="https://pypi.flatt.tech/simple/"
+RUBYGEMS_MIRROR_URL="https://rubygems.flatt.tech/"
 
 NPM_MIN_RELEASE_AGE_DAYS=3        # npm 11.10+
 PNPM_MIN_RELEASE_AGE_MIN=4320     # pnpm 10.16+
@@ -264,6 +266,37 @@ write_poetry_config_toml() {
   chmod 644 "$f"
 }
 
+# Bundler の ~/.bundle/config は単純な YAML (キー: 値 の平置き)。
+# `bundle config --global mirror.https://rubygems.org https://rubygems.flatt.tech/` を実行すると
+# キー名は `BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/` という独特なエスケープが入る (`.` → `__`)。
+# Bundler が無い環境にも対応するため、コマンドを呼ばず YAML を直接書く。
+# Ruby 側に minimumReleaseAge 相当機能は無いので registry mirror のみ。
+write_bundle_config() {
+  local home_dir="$1" user="$2"
+  local dir="$home_dir/.bundle"
+  local f="$dir/config"
+  local key="BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/"
+  mkdir -p "$dir"
+  chown -R "$user":staff "$dir" 2>/dev/null || true
+  backup_once "$f"
+  if [[ -f "$f" ]]; then
+    strip_managed_block "$f"
+    # 既存に同キーがあれば disable (キー名にスラッシュ・コロンが含まれるので正規表現はリテラル比較)
+    disable_keys "$f" 'BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/[[:space:]]*:'
+  fi
+  # 既存ファイルに `---` ヘッダがある (Bundler が生成するもの) ならそれを尊重し、
+  # 末尾追記でも YAML として valid なまま。ヘッダがなければ追加する。
+  if [[ ! -s "$f" ]] || ! /usr/bin/grep -q '^---' "$f"; then
+    printf -- "---\n" >> "$f"
+  fi
+  {
+    echo "$MARK"
+    echo "${key}: \"$RUBYGEMS_MIRROR_URL\""
+  } >> "$f"
+  chown "$user":staff "$f"
+  chmod 644 "$f"
+}
+
 apply_for_user() {
   local home_dir="$1"
   local user
@@ -280,6 +313,7 @@ apply_for_user() {
   write_pip_conf            "$home_dir" "$user"
   write_uv_toml             "$home_dir" "$user"
   write_poetry_config_toml  "$home_dir" "$user"
+  write_bundle_config       "$home_dir" "$user"
 }
 
 main() {
@@ -293,4 +327,7 @@ main() {
   echo "done."
 }
 
-main "$@"
+# テストから関数だけ source できるように、直接実行時のみ main を呼ぶ。
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

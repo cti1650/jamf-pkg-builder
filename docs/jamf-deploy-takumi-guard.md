@@ -103,9 +103,23 @@
    - `~/Library/Application Support/pip/pip.conf`
    - `~/.config/uv/uv.toml`
    - `~/Library/Application Support/pypoetry/config.toml`
+   - `~/.bundle/config`
 3. `npm config get registry` が `https://npm.flatt.tech/` を返すこと
 4. `pip config list` が `global.index-url='https://pypi.flatt.tech/simple/'` を含むこと
-5. `npm install lodash` 等の通常パッケージは動き、`npm install <最近 3 日以内に公開されたバージョン>` が拒否されること
+5. `bundle config get mirror.https://rubygems.org` が `https://rubygems.flatt.tech/` を返すこと
+6. `npm install lodash` 等の通常パッケージは動き、`npm install <最近 3 日以内に公開されたバージョン>` が拒否されること
+
+### 公式検証パッケージで blocklist が効くかを確認
+
+```bash
+# npm
+npm install @panda-guard/test-malicious  # → 403 Forbidden が返れば設定 OK
+
+# Ruby (Bundler)
+cd $(mktemp -d) && \
+  printf 'source "https://rubygems.org"\ngem "hola-takumi", "0.1.0"\n' > Gemfile && \
+  bundle install  # → "Could not find gem" が返れば設定 OK
+```
 
 ### Jamf Pro 側
 
@@ -118,6 +132,7 @@
 | 制限 | 対応 |
 |---|---|
 | Poetry の **index プロキシ化はグローバル設定不可** (Poetry 公式仕様) | プロジェクト毎に `poetry source add --priority=primary takumi https://pypi.flatt.tech/simple/` を別途案内。配信されるのは `solver.min-release-age = 3` のみ |
+| **Ruby (Bundler/RubyGems)** 側に N 日遅延機能が公式に未実装 (2026-05 時点 / [rubygems#9113](https://github.com/ruby/rubygems/discussions/9113) 議論中) | `~/.bundle/config` には registry mirror のみ配布。3 日遅延が必要なら Dependabot の `cooldown.days: 3` を `.github/dependabot.yml` で併用 |
 | **Yarn classic (v1)** は 3 日制限の公式機能なし | 影響を受ける開発者には Yarn berry 4.10+ への移行を推奨 |
 | 各マネージャの **最小バージョン** が新しい (npm 11.10+ / pnpm 10.16+ / yarn 4.10+ / bun 1.3+ / Poetry 2.4+) | EA で `npm -v` 等を併せて取得する拡張版を別途検討 |
 | **bun** は Takumi Guard 公式サポート対象外 | registry URL を向ければ動く想定だが Flatt Security 公式の保証はない |

@@ -70,6 +70,7 @@ revert_for_user() {
     "$home_dir/.config/pip/pip.conf"
     "$home_dir/.config/uv/uv.toml"
     "$home_dir/Library/Application Support/pypoetry/config.toml"
+    "$home_dir/.bundle/config"
   )
   local f
   for f in "${files[@]}"; do
@@ -95,4 +96,7 @@ main() {
   echo "done. (mode=$mode)"
 }
 
-main "$@"
+# テストから関数だけ source できるように、直接実行時のみ main を呼ぶ。
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

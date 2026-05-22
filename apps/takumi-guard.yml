@@ -17,6 +17,9 @@ name: Takumi Guard
 #                - pnpm 10.16+ : ~/.npmrc          minimum-release-age=4320     (分)
 #                - yarn 4.10+  : ~/.yarnrc.yml     npmMinimalAgeGate: "3d"      (yarn classic は未対応)
 #                - bun  1.3+   : ~/.bunfig.toml    minimumReleaseAge = 259200   (秒)
+#   - Ruby     : ~/.bundle/config の mirror を https://rubygems.flatt.tech/ に向ける (Anonymous)。
+#                Bundler/RubyGems 側に N 日遅延機能は無いので registry プロキシのみ
+#                (Dependabot cooldown 等を別途併用推奨)
 # 詳細は scripts/apps/takumi-guard/install.sh 冒頭のコメントを参照。
 
 download: {}  # script_based なのでダウンロード対象なし
