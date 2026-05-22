@@ -22,6 +22,8 @@ if [[ ! -f "$UNINSTALL_SH" ]]; then echo "FATAL: $UNINSTALL_SH not found" >&2; e
 # install.sh / uninstall.sh は内部で `chown $user:staff` を呼ぶ。テスト中は root でないので失敗するが、
 # install.sh 側に `|| true` が付いているので問題ない。staff グループが Linux に存在しないため
 # stderr を消す目的で、テスト中だけ chown を no-op に差し替える。
+# (chown は install.sh 側から間接的に呼ばれるので shellcheck は到達不能と判定する)
+# shellcheck disable=SC2317
 chown() { :; }
 export -f chown
 
