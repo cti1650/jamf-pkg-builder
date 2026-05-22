@@ -3,17 +3,22 @@
 # (Jamf Pro ポリシーから root で実行する想定)
 #
 # 二段構えで supply chain attack を防ぐ:
-#   (1) registry を Flatt Security のプロキシに向ける (blocklist 防御)
+#   (1) registry / index を Flatt Security のプロキシに向ける (blocklist 防御)
 #       - npm 系 (npm/yarn/pnpm/bun) → https://npm.flatt.tech/
-#       - pip                          → https://pypi.flatt.tech/simple/  (72h quarantine 自動)
+#       - pip / uv                    → https://pypi.flatt.tech/simple/  (72h quarantine 自動)
+#       - poetry                       → グローバル設定不可。プロジェクト側で
+#                                         `poetry source add --priority=primary takumi ...` 案内のみ
 #   (2) 各パッケージマネージャ標準の "公開から N 日経っていないバージョンを除外" 機能で
 #       3 日遅延をクライアント側からも強制する。
 #
-# 3 日 = 72 時間 = 4320 分 = 259200 秒。各マネージャで単位が違う:
-#   - npm  (.npmrc)            : min-release-age=3                (日)        ※ npm CLI 11.10+
-#   - pnpm (~/.npmrc など)      : minimum-release-age=4320         (分)        ※ pnpm 10.16+
-#   - yarn (~/.yarnrc.yml)     : npmMinimalAgeGate: "3d"          (duration)  ※ Yarn berry 4.10+ のみ
-#   - bun  (~/.bunfig.toml)     : minimumReleaseAge = 259200       (秒)        ※ Bun 1.3+
+# 3 日 = 72 時間 = 4320 分 = 259200 秒。各マネージャで設定キー/単位/ファイルが違う:
+#   - npm   ~/.npmrc                                       : min-release-age=3              (日)        ※ npm CLI 11.10+
+#   - pnpm  ~/.npmrc                                       : minimum-release-age=4320       (分)        ※ pnpm 10.16+
+#   - yarn  ~/.yarnrc.yml                                  : npmMinimalAgeGate: "3d"        (duration)  ※ Yarn berry 4.10+ のみ
+#   - bun   ~/.bunfig.toml                                 : minimumReleaseAge = 259200     (秒)        ※ Bun 1.3+
+#   - pip   ~/Library/Application Support/pip/pip.conf      : index-url (3 日機能なし)         — Takumi Guard 側 72h quarantine で代替
+#   - uv    ~/.config/uv/uv.toml                            : exclude-newer = "3 days"       (duration)  ※ uv 全バージョン
+#   - poetry ~/Library/Application Support/pypoetry/config.toml : solver.min-release-age = 3 (日)        ※ Poetry 2.4+
 #
 # 冪等性とユーザ設定の尊重:
 #   - 既存ファイルがあれば .takumi-guard.bak を残す (監査用)
@@ -29,10 +34,12 @@ set -euo pipefail
 NPM_REGISTRY="https://npm.flatt.tech/"
 PYPI_INDEX_URL="https://pypi.flatt.tech/simple/"
 
-NPM_MIN_RELEASE_AGE_DAYS=3       # npm 11.10+
-PNPM_MIN_RELEASE_AGE_MIN=4320    # pnpm 10.16+
-YARN_MIN_AGE_GATE="3d"           # Yarn berry 4.10+
-BUN_MIN_RELEASE_AGE_SEC=259200   # Bun 1.3+
+NPM_MIN_RELEASE_AGE_DAYS=3        # npm 11.10+
+PNPM_MIN_RELEASE_AGE_MIN=4320     # pnpm 10.16+
+YARN_MIN_AGE_GATE="3d"            # Yarn berry 4.10+
+BUN_MIN_RELEASE_AGE_SEC=259200    # Bun 1.3+
+UV_EXCLUDE_NEWER="3 days"         # uv (Astral) 全バージョン
+POETRY_MIN_RELEASE_AGE_DAYS=3     # Poetry 2.4+
 
 MARK="# managed-by: takumi-guard (jamf-pkg-builder)"
 DISABLE_PREFIX="# disabled-by: takumi-guard "
@@ -178,18 +185,81 @@ write_bunfig() {
   chmod 644 "$f"
 }
 
-# pip の pip.conf は [global] セクションに index-url を書く。
+# pip の pip.conf は macOS では ~/Library/Application Support/pip/pip.conf が
+# 第一優先。~/.config/pip/pip.conf はフォールバックなので、Library 側に書く。
+# 過去バージョンが ~/.config/pip/pip.conf に MARK を残していたら剥がす (移行対応)。
 write_pip_conf() {
   local home_dir="$1" user="$2"
-  local dir="$home_dir/.config/pip"
+  local dir="$home_dir/Library/Application Support/pip"
   local f="$dir/pip.conf"
   mkdir -p "$dir"
-  chown "$user":staff "$home_dir/.config" "$dir" 2>/dev/null || true
+  chown -R "$user":staff "$dir" 2>/dev/null || true
   backup_once "$f"
   [[ -f "$f" ]] && strip_managed_block "$f"
   [[ -f "$f" ]] && disable_keys "$f" 'index-url[[:space:]]*='
   inject_into_section "$f" "global" \
     "index-url = $PYPI_INDEX_URL"
+  chown "$user":staff "$f"
+  chmod 644 "$f"
+
+  # 旧パス (`.config/pip/pip.conf`) に MARK ブロックが残っていれば剥がす。
+  local legacy="$home_dir/.config/pip/pip.conf"
+  if [[ -f "$legacy" ]] && /usr/bin/grep -q "managed-by: takumi-guard" "$legacy"; then
+    strip_managed_block "$legacy"
+  fi
+}
+
+# uv (Astral) は ~/.config/uv/uv.toml を読む (macOS でも XDG ベース)。
+# [[index]] (配列テーブル) で default index を指定し、トップレベル exclude-newer で
+# 3 日遅延を強制する。"3 days" は uv の duration 文字列。
+# 既存に [[index]] で default=true のものがあると競合する可能性があるため、
+# その場合は warn を出すに留め、追記方針は変えない (手動で対応してもらう)。
+write_uv_toml() {
+  local home_dir="$1" user="$2"
+  local dir="$home_dir/.config/uv"
+  local f="$dir/uv.toml"
+  mkdir -p "$dir"
+  chown -R "$user":staff "$dir" 2>/dev/null || true
+  backup_once "$f"
+  if [[ -f "$f" ]]; then
+    strip_managed_block "$f"
+    disable_keys "$f" \
+      'exclude-newer[[:space:]]*=' \
+      'index-url[[:space:]]*='
+    if /usr/bin/grep -q "default[[:space:]]*=[[:space:]]*true" "$f"; then
+      echo "  [warn] uv.toml に既存の default=true index があります ($f)。手動で外してください。" >&2
+    fi
+  fi
+  {
+    echo ""
+    echo "$MARK"
+    echo "exclude-newer = \"$UV_EXCLUDE_NEWER\""
+    echo ""
+    echo "[[index]]"
+    echo "name = \"takumi-guard\""
+    echo "url = \"$PYPI_INDEX_URL\""
+    echo "default = true"
+  } >> "$f"
+  chown "$user":staff "$f"
+  chmod 644 "$f"
+}
+
+# Poetry はグローバル設定で index を変えられないため (公式仕様)、
+# ここでは「3 日遅延」のみを ~/Library/Application Support/pypoetry/config.toml に配布する。
+# index の Takumi Guard プロキシ化はプロジェクト毎に
+#   poetry source add --priority=primary takumi https://pypi.flatt.tech/simple/
+# を実行してもらう (PR description 参照)。
+write_poetry_config_toml() {
+  local home_dir="$1" user="$2"
+  local dir="$home_dir/Library/Application Support/pypoetry"
+  local f="$dir/config.toml"
+  mkdir -p "$dir"
+  chown -R "$user":staff "$dir" 2>/dev/null || true
+  backup_once "$f"
+  [[ -f "$f" ]] && strip_managed_block "$f"
+  [[ -f "$f" ]] && disable_keys "$f" 'min-release-age[[:space:]]*='
+  inject_into_section "$f" "solver" \
+    "min-release-age = $POETRY_MIN_RELEASE_AGE_DAYS"
   chown "$user":staff "$f"
   chmod 644 "$f"
 }
@@ -204,10 +274,12 @@ apply_for_user() {
   [[ -d "$home_dir" ]] || return 0
 
   echo "==> applying Takumi Guard + minimumReleaseAge for $user ($home_dir)"
-  write_npmrc       "$home_dir" "$user"
-  write_yarnrc_yml  "$home_dir" "$user"
-  write_bunfig      "$home_dir" "$user"
-  write_pip_conf    "$home_dir" "$user"
+  write_npmrc               "$home_dir" "$user"
+  write_yarnrc_yml          "$home_dir" "$user"
+  write_bunfig              "$home_dir" "$user"
+  write_pip_conf            "$home_dir" "$user"
+  write_uv_toml             "$home_dir" "$user"
+  write_poetry_config_toml  "$home_dir" "$user"
 }
 
 main() {

@@ -6,7 +6,14 @@ set -euo pipefail
 count=0
 for h in /Users/*; do
   [[ -d "$h" ]] || continue
-  for f in "$h/.npmrc" "$h/.yarnrc.yml" "$h/.bunfig.toml" "$h/.config/pip/pip.conf"; do
+  for f in \
+    "$h/.npmrc" \
+    "$h/.yarnrc.yml" \
+    "$h/.bunfig.toml" \
+    "$h/Library/Application Support/pip/pip.conf" \
+    "$h/.config/pip/pip.conf" \
+    "$h/.config/uv/uv.toml" \
+    "$h/Library/Application Support/pypoetry/config.toml"; do
     if [[ -f "$f" ]] && /usr/bin/grep -q "managed-by: takumi-guard" "$f" 2>/dev/null; then
       count=$((count + 1))
       break

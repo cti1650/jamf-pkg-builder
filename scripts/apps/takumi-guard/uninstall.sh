@@ -66,7 +66,10 @@ revert_for_user() {
     "$home_dir/.npmrc"
     "$home_dir/.yarnrc.yml"
     "$home_dir/.bunfig.toml"
+    "$home_dir/Library/Application Support/pip/pip.conf"
     "$home_dir/.config/pip/pip.conf"
+    "$home_dir/.config/uv/uv.toml"
+    "$home_dir/Library/Application Support/pypoetry/config.toml"
   )
   local f
   for f in "${files[@]}"; do

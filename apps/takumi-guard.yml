@@ -6,13 +6,17 @@ name: Takumi Guard
 # 「設定ファイル一括配布スクリプト」を Jamf Pro ポリシーで配る運用とする。
 #
 # 3 日 (72h) 公開遅延は二段構えで実現する:
-#   - pip   : pypi.flatt.tech/simple/ に向けるだけで 72h quarantine が自動適用される
-#   - npm 系: Takumi Guard 側に quarantine 機能がないため、各マネージャ標準の
-#             minimumReleaseAge / min-release-age / npmMinimalAgeGate を併用する
-#             - npm  11.10+ : ~/.npmrc          min-release-age=3            (日)
-#             - pnpm 10.16+ : ~/.npmrc          minimum-release-age=4320     (分)
-#             - yarn 4.10+  : ~/.yarnrc.yml     npmMinimalAgeGate: "3d"      (yarn classic は未対応)
-#             - bun  1.3+   : ~/.bunfig.toml    minimumReleaseAge = 259200   (秒)
+#   - pip      : ~/Library/Application Support/pip/pip.conf を pypi.flatt.tech/simple/ に向け、
+#                サーバ側の 72h quarantine に頼る (pip 自体に N 日除外機能はない)
+#   - uv       : ~/.config/uv/uv.toml に [[index]] と exclude-newer = "3 days" を書く (二重保険)
+#   - poetry   : config.toml に solver.min-release-age = 3 を書く。index プロキシ化は
+#                プロジェクト側 (`poetry source add ...`) 運用で対応
+#   - npm 系   : Takumi Guard 側に quarantine 機能がないため、各マネージャ標準の
+#                minimumReleaseAge / min-release-age / npmMinimalAgeGate を併用する
+#                - npm  11.10+ : ~/.npmrc          min-release-age=3            (日)
+#                - pnpm 10.16+ : ~/.npmrc          minimum-release-age=4320     (分)
+#                - yarn 4.10+  : ~/.yarnrc.yml     npmMinimalAgeGate: "3d"      (yarn classic は未対応)
+#                - bun  1.3+   : ~/.bunfig.toml    minimumReleaseAge = 259200   (秒)
 # 詳細は scripts/apps/takumi-guard/install.sh 冒頭のコメントを参照。
 
 download: {}  # script_based なのでダウンロード対象なし
