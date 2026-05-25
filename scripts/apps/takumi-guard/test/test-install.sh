@@ -222,18 +222,60 @@ EOF
   rm -rf "$H"
 }
 
-tc "TC8: .takumi-guard.bak が backup_once で 1 回だけ作られる (再 install で上書きされない)"
+tc "TC8: 公式 setup.sh と同じ命名で世代保持バックアップが作られる (再 install ごとに新規生成)"
+{
+  H=$(new_fake_home)
+  cat > "$H/.npmrc" <<'EOF'
+ORIGINAL_V1=true
+EOF
+  apply_for_user "$H" >/dev/null 2>&1
+  # 1 回目 install で `.npmrc-backup-YYYYMMDDhhmmss[-N]` が 1 個できる
+  BAK_COUNT_1=$(/usr/bin/find "$H" -maxdepth 1 -name '.npmrc-backup-*' 2>/dev/null | wc -l | tr -d ' ')
+  assert_equal "$BAK_COUNT_1" "1" "1 回目 install で世代バックアップが 1 個できる"
+  # バックアップ名が公式仕様 `-backup-YYYYMMDDhhmmss` 形式 (14 桁のタイムスタンプ、衝突時は -N サフィックス)
+  BAK1=$(/usr/bin/find "$H" -maxdepth 1 -name '.npmrc-backup-*' | head -1)
+  BAK1_BASE=$(basename "$BAK1")
+  if [[ "$BAK1_BASE" =~ ^\.npmrc-backup-[0-9]{14}(-[0-9]+)?$ ]]; then
+    PASS=$((PASS + 1)); printf '    %s 命名規則 .npmrc-backup-YYYYMMDDhhmmss[-N] に一致 (%s)\n' "$(green ✓)" "$BAK1_BASE"
+  else
+    FAIL=$((FAIL + 1)); printf '    %s 命名規則 .npmrc-backup-YYYYMMDDhhmmss[-N] に一致しない (%s)\n' "$(red ✗)" "$BAK1_BASE"
+  fi
+  assert_grep "$BAK1" '^ORIGINAL_V1=true' "1 回目バックアップに install 前の内容が保存される"
+
+  # 2 回目 install (内容を変えて再実行) で世代が追加される
+  apply_for_user "$H" >/dev/null 2>&1
+  BAK_COUNT_2=$(/usr/bin/find "$H" -maxdepth 1 -name '.npmrc-backup-*' 2>/dev/null | wc -l | tr -d ' ')
+  # 2 回目実行時点ではすでに registry= 等が書き込まれた状態がバックアップされる
+  # ただし同じ秒の場合は -1 サフィックス付きで衝突回避するため、必ず増える
+  if [[ "$BAK_COUNT_2" -ge 2 ]]; then
+    PASS=$((PASS + 1)); printf '    %s 2 回目 install で世代バックアップが追加される (count: %d)\n' "$(green ✓)" "$BAK_COUNT_2"
+  else
+    FAIL=$((FAIL + 1)); printf '    %s 2 回目 install で世代が追加されない (count: %d)\n' "$(red ✗)" "$BAK_COUNT_2"
+  fi
+  # 1 回目のバックアップ内容は維持されていること (世代保持)
+  assert_grep "$BAK1" '^ORIGINAL_V1=true' "1 回目バックアップの内容は維持される (世代保持)"
+  rm -rf "$H"
+}
+
+tc "TC10: uninstall --restore-bak で最新タイムスタンプのバックアップから復元される"
 {
   H=$(new_fake_home)
   cat > "$H/.npmrc" <<'EOF'
 ORIGINAL=true
 EOF
   apply_for_user "$H" >/dev/null 2>&1
-  assert_file_exists "$H/.npmrc.takumi-guard.bak" "1 回目 install で .bak が作られる"
-  assert_grep        "$H/.npmrc.takumi-guard.bak" '^ORIGINAL=true' ".bak に install 前の内容が保存される"
-  # 2 回目 install で .bak が上書きされないこと
-  apply_for_user "$H" >/dev/null 2>&1
-  assert_grep        "$H/.npmrc.takumi-guard.bak" '^ORIGINAL=true' "2 回目 install 後も .bak は最初の内容のまま"
+  # 異なるタイムスタンプの旧バックアップを偽装作成 (より古い時刻)
+  echo "VERY_OLD=true" > "$H/.npmrc-backup-19990101000000"
+  # source uninstall して revert を bak モードで実行
+  # shellcheck source=/dev/null
+  source "$UNINSTALL_SH"
+  relax_strict
+  revert_for_user "$H" "bak"
+  # 最新タイムスタンプの内容 (= 直前 install 前の .npmrc = ORIGINAL=true) が戻ること
+  assert_grep      "$H/.npmrc" '^ORIGINAL=true'  "最新タイムスタンプから復元される"
+  assert_not_grep  "$H/.npmrc" '^VERY_OLD=true'  "古いタイムスタンプは選ばれない"
+  # バックアップ自体は残る (監査用)
+  assert_file_exists "$H/.npmrc-backup-19990101000000" "復元しても古いバックアップは残る"
   rm -rf "$H"
 }
 

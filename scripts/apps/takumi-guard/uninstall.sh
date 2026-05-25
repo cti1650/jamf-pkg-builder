@@ -6,8 +6,10 @@
 # 結果として「install で追記/変更した内容だけ」が元に戻る (install 後にユーザが
 # 管理ブロック外で加えた編集は保持される)。
 #
-# .takumi-guard.bak は監査用に残しっぱなしにしている (デフォルトでは復元に使わない)。
-# 完全に install 前の状態に巻き戻したい場合のみ、引数に --restore-bak を渡す。
+# `<元ファイル名>-backup-<YYYYMMDDhhmmss>` 形式のタイムスタンプ付きバックアップは監査用に
+# 残しっぱなし (デフォルトでは復元に使わない)。完全に install 前 (= 最古のバックアップ) や
+# 直前の install 前 (= 最新のバックアップ) の状態に巻き戻したい場合のみ、
+# 引数 --restore-bak を渡す (最新タイムスタンプから復元)。
 set -euo pipefail
 
 MARK_NEEDLE="managed-by: takumi-guard"
@@ -53,10 +55,15 @@ revert_file() {
   reenable_disabled_lines "$f"
 }
 
+# `<元ファイル名>-backup-YYYYMMDDhhmmss[-N]` 形式のバックアップから最新の 1 個を復元する。
+# ファイル名をアルファベット順にソートすればタイムスタンプ順になるので、ls -1 | sort | tail -1。
+# 復元時に元ファイルを上書きするだけで、バックアップ自体は残す (監査ログとして保持)。
 restore_from_bak() {
   local f="$1"
-  [[ -f "${f}.takumi-guard.bak" ]] || return 0
-  mv "${f}.takumi-guard.bak" "$f"
+  local latest
+  latest="$(ls -1 "${f}-backup-"* 2>/dev/null | sort | tail -1)"
+  [[ -n "$latest" && -f "$latest" ]] || return 0
+  cp "$latest" "$f"
 }
 
 revert_for_user() {

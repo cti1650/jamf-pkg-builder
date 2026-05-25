@@ -36,7 +36,7 @@
 | `takumi-guard-install` | Script: `scripts/apps/takumi-guard/install.sh` の中身を貼り付け。Priority: After。Parameter は使用しない |
 | `takumi-guard-uninstall` | Script: `scripts/apps/takumi-guard/uninstall.sh` の中身を貼り付け。Priority: Before。`$4` に `--restore-bak` を渡せば完全復元モードで動作 |
 
-> uninstall.sh は `--restore-bak` 引数で `.takumi-guard.bak` から install 前状態に完全復元する。Jamf の Script Parameter ($4 以降) を渡せるようにしておくと便利。
+> uninstall.sh は `--restore-bak` 引数で **タイムスタンプ付きバックアップ (`<元ファイル名>-backup-<YYYYMMDDhhmmss>`)** の最新世代から install 前状態に復元する (公式 Takumi Guard setup.sh と同じ命名規則)。Jamf の Script Parameter ($4 以降) を渡せるようにしておくと便利。
 
 ### 2. Extension Attribute (EA) に ea.sh を登録
 
@@ -146,7 +146,8 @@ cd $(mktemp -d) && \
 | EA が 0 のまま | install.sh の Jamf 実行ログを確認 (`/var/log/jamf.log`)。`must run as root` で落ちていないか / `mkdir -p` が刺さっていないか |
 | `~/.npmrc` の `registry=` が古いままになっている | ユーザが管理ブロック外で独自 `registry=` を書いていた場合は `# disabled-by: takumi-guard ` でコメントアウトされているはず。手動で書き換えていれば優先される |
 | install 後の `[install] / [global] / [solver]` セクションが重複してパースエラー | `inject_into_section` の同セクション挿入ロジックが効いていないケース。該当ファイルの内容を共有し issue 化 |
-| 完全に元に戻したい | uninstall ポリシーを Parameter 4 に `--restore-bak` を渡して実行。`.takumi-guard.bak` から install 直前状態が復元される |
+| 完全に元に戻したい | uninstall ポリシーを Parameter 4 に `--restore-bak` を渡して実行。`<元ファイル名>-backup-<YYYYMMDDhhmmss>` の最新世代から install 直前状態が復元される (バックアップ自体は監査用に残る) |
+| バックアップが溜まりすぎてディスクを圧迫 | install は **毎回新規にバックアップを生成する** (公式 setup.sh と同じ仕様)。`Recurring Check-in` ポリシーで `Ongoing` 実行している場合、世代が単調増加する。古い世代を定期削除したい場合は別途クリーンアップ運用が必要 (例: `find ~ -name '*-backup-*' -mtime +30 -delete`) |
 
 ## 関連
 

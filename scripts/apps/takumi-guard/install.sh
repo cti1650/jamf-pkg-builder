@@ -22,7 +22,8 @@
 #   - bundler ~/.bundle/config                              : mirror.https://rubygems.org → rubygems.flatt.tech (3 日機能なし) — Anonymous tier 利用
 #
 # 冪等性とユーザ設定の尊重:
-#   - 既存ファイルがあれば .takumi-guard.bak を残す (監査用)
+#   - 既存ファイルがあれば `<元ファイル名>-backup-<YYYYMMDDhhmmss>` を残す (公式 setup.sh と
+#     同じ命名規則。毎回新規作成で世代保持)
 #   - 既存の "# managed-by: takumi-guard" ブロックは削除して書き直す
 #   - ユーザが管理ブロック外に書いていた管理対象キー (registry= 等) は
 #     "# disabled-by: takumi-guard " プレフィックスを付けてコメントアウトする
@@ -46,9 +47,21 @@ POETRY_MIN_RELEASE_AGE_DAYS=3     # Poetry 2.4+
 MARK="# managed-by: takumi-guard (jamf-pkg-builder)"
 DISABLE_PREFIX="# disabled-by: takumi-guard "
 
-backup_once() {
+# 公式 Takumi Guard setup.sh と同じ命名規則 (`<元ファイル名>-backup-<YYYYMMDDhhmmss>`) で
+# 毎回バックアップを取り、複数世代を保持する。同じ秒に複数回呼ばれた場合は連番でユニーク化。
+# https://shisho.dev/docs/ja/t/guard/features/admin-deployment/
+backup_with_timestamp() {
   local f="$1"
-  [[ -f "$f" && ! -f "${f}.takumi-guard.bak" ]] && cp "$f" "${f}.takumi-guard.bak"
+  [[ -f "$f" ]] || return 0
+  local ts bak
+  ts=$(date +%Y%m%d%H%M%S)
+  bak="${f}-backup-${ts}"
+  local i=0
+  while [[ -e "$bak" ]]; do
+    i=$((i + 1))
+    bak="${f}-backup-${ts}-${i}"
+  done
+  cp "$f" "$bak"
 }
 
 # "# managed-by: takumi-guard" 行と続く管理ブロック (空行 or 別コメントに当たるまで) を削除。
@@ -135,7 +148,7 @@ inject_into_section() {
 write_npmrc() {
   local home_dir="$1" user="$2"
   local f="$home_dir/.npmrc"
-  backup_once "$f"
+  backup_with_timestamp "$f"
   strip_managed_block "$f"
   disable_keys "$f" \
     'registry[[:space:]]*=' \
@@ -155,7 +168,7 @@ write_npmrc() {
 write_yarnrc_yml() {
   local home_dir="$1" user="$2"
   local f="$home_dir/.yarnrc.yml"
-  backup_once "$f"
+  backup_with_timestamp "$f"
   strip_managed_block "$f"
   disable_keys "$f" \
     'npmRegistryServer[[:space:]]*:' \
@@ -173,7 +186,7 @@ write_yarnrc_yml() {
 write_bunfig() {
   local home_dir="$1" user="$2"
   local f="$home_dir/.bunfig.toml"
-  backup_once "$f"
+  backup_with_timestamp "$f"
   strip_managed_block "$f"
   # [install] セクション内の registry / minimumReleaseAge を disable する
   # (セクションを跨ぐ厳密判定は awk が複雑になるので、保守的に同名キーを全行 disable)
@@ -196,7 +209,7 @@ write_pip_conf() {
   local f="$dir/pip.conf"
   mkdir -p "$dir"
   chown -R "$user":staff "$dir" 2>/dev/null || true
-  backup_once "$f"
+  backup_with_timestamp "$f"
   [[ -f "$f" ]] && strip_managed_block "$f"
   [[ -f "$f" ]] && disable_keys "$f" 'index-url[[:space:]]*='
   inject_into_section "$f" "global" \
@@ -222,7 +235,7 @@ write_uv_toml() {
   local f="$dir/uv.toml"
   mkdir -p "$dir"
   chown -R "$user":staff "$dir" 2>/dev/null || true
-  backup_once "$f"
+  backup_with_timestamp "$f"
   if [[ -f "$f" ]]; then
     strip_managed_block "$f"
     disable_keys "$f" \
@@ -257,7 +270,7 @@ write_poetry_config_toml() {
   local f="$dir/config.toml"
   mkdir -p "$dir"
   chown -R "$user":staff "$dir" 2>/dev/null || true
-  backup_once "$f"
+  backup_with_timestamp "$f"
   [[ -f "$f" ]] && strip_managed_block "$f"
   [[ -f "$f" ]] && disable_keys "$f" 'min-release-age[[:space:]]*='
   inject_into_section "$f" "solver" \
@@ -278,7 +291,7 @@ write_bundle_config() {
   local key="BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/"
   mkdir -p "$dir"
   chown -R "$user":staff "$dir" 2>/dev/null || true
-  backup_once "$f"
+  backup_with_timestamp "$f"
   if [[ -f "$f" ]]; then
     strip_managed_block "$f"
     # 既存に同キーがあれば disable (キー名にスラッシュ・コロンが含まれるので正規表現はリテラル比較)
