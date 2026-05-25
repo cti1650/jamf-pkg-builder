@@ -90,6 +90,12 @@ jobs:
           sw_vers && uname -m
           yq --version
 
+      - name: Run takumi-guard unit tests
+        if: matrix.app == 'takumi-guard'
+        run: |
+          chmod +x scripts/apps/takumi-guard/test/test-install.sh
+          scripts/apps/takumi-guard/test/test-install.sh
+
       - name: Run build-and-verify
         env:
           APP: ${{ matrix.app }}
@@ -105,7 +111,8 @@ jobs:
           path: |
             ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ matrix.app }}.pkg
             ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ matrix.app }}-build-and-verify.log
-          if-no-files-found: warn
+          # script_based モードの app は .pkg を作らないので warn → ignore に下げる
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Upload EA script artifact

@@ -11,6 +11,7 @@ on:
           - cloudflare-warp
           - google-chrome
           - slack
+          - takumi-guard
           - zoom
 
 permissions:
@@ -50,7 +51,8 @@ jobs:
           path: |
             ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ github.event.inputs.app }}.pkg
             ${{ runner.temp }}/jamf-pkg-builder/artifacts/${{ github.event.inputs.app }}-build-and-verify.log
-          if-no-files-found: warn
+          # script_based モードの app は .pkg を作らないので warn → ignore に下げる
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Upload EA script artifact
