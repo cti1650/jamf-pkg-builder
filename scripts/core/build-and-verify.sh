@@ -91,6 +91,7 @@ if [[ "$INSTALLER_TYPE" == "script_based" ]]; then
   [[ -n "$EA_SCRIPT"        && -f "$REPO_ROOT/$EA_SCRIPT" ]]        && cp "$REPO_ROOT/$EA_SCRIPT"        "$ARTIFACT_DIR/${APP_SLUG}-ea.sh"
   [[ -n "$UNINSTALL_SCRIPT" && -f "$REPO_ROOT/$UNINSTALL_SCRIPT" ]] && cp "$REPO_ROOT/$UNINSTALL_SCRIPT" "$ARTIFACT_DIR/${APP_SLUG}-uninstall.sh"
   record "script_based stage" "OK" "scripts copied to artifacts"
+  cp "$LOG_FILE" "$ARTIFACT_DIR/${APP_SLUG}-build-and-verify.log"
   exit 0
 fi
 
