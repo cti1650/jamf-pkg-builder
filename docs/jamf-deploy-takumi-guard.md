@@ -12,18 +12,24 @@
 ## 配信構成の全体像
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ Jamf Pro                                                       │
-│                                                                │
-│  Scripts            EA              Smart Group     Policy     │
-│  ┌──────────┐      ┌─────┐         ┌──────────┐    ┌────────┐ │
-│  │install.sh│  ←   │ea.sh│  ──→    │未適用機  │ ←  │install │ │
-│  └──────────┘      └─────┘         └──────────┘    └────────┘ │
-│  ┌────────────┐                                    ┌────────┐ │
-│  │uninstall.sh│  ───────────────────────────  ←    │uninstal│ │
-│  └────────────┘                                    └────────┘ │
-└────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ Jamf Pro                                                         │
+│                                                                  │
+│  Scripts            EA (2 個)         Smart Group     Policy     │
+│  ┌──────────┐      ┌─────────────┐   ┌──────────┐    ┌────────┐ │
+│  │install.sh│  ←   │ ea.sh       │←→ │未適用機  │ ←  │install │ │
+│  └──────────┘      │ ea-manual.sh│   └──────────┘    └────────┘ │
+│  ┌────────────┐    └─────────────┘                   ┌────────┐ │
+│  │uninstall.sh│  ─────────────────────────────  ←    │uninstal│ │
+│  └────────────┘                                      └────────┘ │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+EA は **2 個に分けて** Mac の状態を可視化する:
+- `ea.sh` → **MDM 経由で適用済**のユーザ数 (`# managed-by: takumi-guard` 行で判定)
+- `ea-manual.sh` → **手動で適用済**だが MDM 管理外のユーザ数 (endpoint は向いてるが MARK 行なし)
+
+両方 0 のときだけ「完全未対策 = 要配信」となる。手動適用済みの機を MDM 管理に取り込みたい場合は、Install ポリシーの Scope に Manual Only Smart Group も加える。
 
 ## 事前準備 — Jamf Pro 側の登録物
 
@@ -38,28 +44,35 @@
 
 > uninstall.sh は `--restore-bak` 引数で **タイムスタンプ付きバックアップ (`<元ファイル名>-backup-<YYYYMMDDhhmmss>`)** の最新世代から install 前状態に復元する (公式 Takumi Guard setup.sh と同じ命名規則)。Jamf の Script Parameter ($4 以降) を渡せるようにしておくと便利。
 
-### 2. Extension Attribute (EA) に ea.sh を登録
+### 2. Extension Attribute (EA) を 2 個登録
 
-**Computer Management → Extension Attributes → New**
+**Computer Management → Extension Attributes → New** を 2 回繰り返す:
 
-| Field | Value |
-|---|---|
-| Display Name | `Takumi Guard Applied User Count` |
-| Data Type | `Integer` |
-| Inventory Display | `Extension Attributes` |
-| Input Type | `Script` |
-| Script | `scripts/apps/takumi-guard/ea.sh` の中身を貼り付け |
+| Display Name | Data Type | Input Type | Script |
+|---|---|---|---|
+| `Takumi Guard - MDM Applied Users` | Integer | Script | `scripts/apps/takumi-guard/ea.sh` の中身を貼り付け |
+| `Takumi Guard - Manual Applied Users` | Integer | Script | `scripts/apps/takumi-guard/ea-manual.sh` の中身を貼り付け |
 
-→ Mac ごとに「Takumi Guard 設定が書かれているユーザ数」を整数で返す。0 なら未適用。
+両方とも Inventory Display は `Extension Attributes` (デフォルト)。
 
-### 3. Smart Computer Group を 2 つ作る
+| EA | 何を返すか | 意味 |
+|---|---|---|
+| MDM Applied | `# managed-by: takumi-guard` 行があるユーザ数 | MDM 経由で配信成功 |
+| Manual Applied | endpoint (`flatt.tech`) を向いているが MARK 行が無いユーザ数 | 本人が手動で対策しているが MDM 管理外 (MDM 優先ロジックで重複カウントしない) |
+
+→ MDM Applied = 0 かつ Manual Applied = 0 のとき **完全未対策**。MDM Applied ≥ 1 のとき配信成功。Manual Applied ≥ 1 のときは MDM 管理に取り込むか個別判断。
+
+### 3. Smart Computer Group を 3 つ作る
 
 **Computers → Smart Computer Groups → New**
 
-| Group | Criteria |
+| Group | Criteria (AND) |
 |---|---|
-| `Takumi Guard - Not Applied` | `Takumi Guard Applied User Count` `is` `0` |
-| `Takumi Guard - Applied` | `Takumi Guard Applied User Count` `more than` `0` |
+| `Takumi Guard - Not Applied` | `MDM Applied Users` `is` `0` **AND** `Manual Applied Users` `is` `0` |
+| `Takumi Guard - Manual Only` | `MDM Applied Users` `is` `0` **AND** `Manual Applied Users` `more than` `0` |
+| `Takumi Guard - MDM Applied` | `MDM Applied Users` `more than` `0` |
+
+> Integer 型 EA で等価判定する場合は `is`、範囲判定は `more than` / `less than` を使う。`Manual Only` グループは「MDM 配信は届いていないが本人が対策済み」の機の可視化用で、運用判断で Install Policy Scope に追加するかを決める。
 
 ## Install ポリシーを作る
 
@@ -68,10 +81,10 @@
 | Field | Value |
 |---|---|
 | Display Name | `Deploy Takumi Guard registry config` |
-| Trigger | `Recurring Check-in` (推奨)。即時に流すなら `Enrollment Complete` を追加で有効化 |
+| Trigger | `Recurring Check-in` (推奨。Jamf デフォルトは 15 分間隔)。即時に流すなら `Enrollment Complete` を追加で有効化 |
 | **Execution Frequency** | **`Ongoing`** ⚠️ 重要 |
-| Scope | `Takumi Guard - Not Applied` Smart Group |
-| Payload: Scripts | `takumi-guard-install` を追加 |
+| Scope | `Takumi Guard - Not Applied` Smart Group。Manual Only も MDM 管理に取り込みたい場合は `Takumi Guard - Manual Only` も追加 |
+| Payload: Scripts | `takumi-guard-install` を追加 (Script Payload 単独なので Priority は `After` のデフォルトで OK — 他 Payload と並ぶときの実行順を決める設定で、単独実行時は意味なし) |
 | Payload: Maintenance → Update Inventory | ✅ チェック (EA を最新化して Smart Group メンバシップが更新される) |
 
 > ⚠️ **`Ongoing`** にする理由: ユーザがファイルを消した・上書きされたケースでも次の Check-in で再適用される。`Once per computer` だと一度きりで再適用されず、ドリフトに気付けない。install.sh は冪等なので `Ongoing` で問題なし。
@@ -85,7 +98,7 @@
 | Display Name | `Uninstall Takumi Guard registry config` |
 | Trigger | `Custom`. Custom Event Name: `takumi-guard-uninstall` |
 | Execution Frequency | `Ongoing` |
-| Scope | `Takumi Guard - Applied` Smart Group |
+| Scope | `Takumi Guard - MDM Applied` Smart Group |
 | Payload: Scripts | `takumi-guard-uninstall`。完全復元したい場合は Parameter 4 に `--restore-bak` |
 | Payload: Maintenance → Update Inventory | ✅ |
 
@@ -124,8 +137,9 @@ cd $(mktemp -d) && \
 ### Jamf Pro 側
 
 1. 対象 Mac の Inventory を更新 (Update Inventory)
-2. Extension Attribute `Takumi Guard Applied User Count` が `1` 以上になっていること
-3. Smart Group `Takumi Guard - Applied` にメンバとして入っていること
+2. Extension Attribute `Takumi Guard - MDM Applied Users` が `1` 以上になっていること
+3. Extension Attribute `Takumi Guard - Manual Applied Users` は `0` であること (MDM 優先ロジックで重複カウントされない)
+4. Smart Group `Takumi Guard - MDM Applied` にメンバとして入り、`Takumi Guard - Not Applied` / `Manual Only` から外れていること
 
 ## 既知の制限事項
 
@@ -143,7 +157,8 @@ cd $(mktemp -d) && \
 
 | 症状 | 確認・対処 |
 |---|---|
-| EA が 0 のまま | install.sh の Jamf 実行ログを確認 (`/var/log/jamf.log`)。`must run as root` で落ちていないか / `mkdir -p` が刺さっていないか |
+| `MDM Applied Users` EA が 0 のまま | install.sh の Jamf 実行ログを確認 (`/var/log/jamf.log`)。`must run as root` で落ちていないか / `mkdir -p` が刺さっていないか |
+| `Manual Applied Users` が常に 1 以上で MDM 化できない | 該当 Mac でユーザが手動で `npm config set registry ...` 等を実行している。Install Policy の Scope に `Takumi Guard - Manual Only` を追加すると上書き配信される (install.sh は既存設定を `# disabled-by:` でコメントアウトし、自身の MARK ブロックを書く) |
 | `~/.npmrc` の `registry=` が古いままになっている | ユーザが管理ブロック外で独自 `registry=` を書いていた場合は `# disabled-by: takumi-guard ` でコメントアウトされているはず。手動で書き換えていれば優先される |
 | install 後の `[install] / [global] / [solver]` セクションが重複してパースエラー | `inject_into_section` の同セクション挿入ロジックが効いていないケース。該当ファイルの内容を共有し issue 化 |
 | 完全に元に戻したい | uninstall ポリシーを Parameter 4 に `--restore-bak` を渡して実行。`<元ファイル名>-backup-<YYYYMMDDhhmmss>` の最新世代から install 直前状態が復元される (バックアップ自体は監査用に残る) |

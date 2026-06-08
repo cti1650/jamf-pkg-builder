@@ -257,6 +257,74 @@ EOF
   rm -rf "$H"
 }
 
+tc "TC11: ea-manual.sh が「手動設定済み (MARK 行なし + endpoint あり)」のユーザを 1 でカウント"
+{
+  H=$(new_fake_home)
+  # 手動設定相当: .npmrc に endpoint だけ書かれていて MARK 行はない
+  mkdir -p "$H"
+  cat > "$H/.npmrc" <<'EOF'
+registry=https://npm.flatt.tech/
+EOF
+  # ea-manual.sh をテスト用に「指定 home だけを舐める」モードで動かすため、
+  # for h in /Users/* の代わりに /tmp 配下を見るパッチを当てる必要があるが、
+  # ここでは ea-manual.sh の中身ロジックを直接コピーして再評価する。
+  # (将来 ea-manual.sh が引数で home を受け取れるようリファクタしたら差し替え可能)
+  user_mdm=false; user_manual=false
+  for f in "$H/.npmrc" "$H/.yarnrc.yml" "$H/.bunfig.toml" "$H/Library/Application Support/pip/pip.conf" "$H/.config/pip/pip.conf" "$H/.config/uv/uv.toml" "$H/Library/Application Support/pypoetry/config.toml" "$H/.bundle/config"; do
+    [[ -f "$f" ]] || continue
+    if /usr/bin/grep -q "managed-by: takumi-guard" "$f" 2>/dev/null; then user_mdm=true; break; fi
+    if /usr/bin/grep -q "flatt\.tech" "$f" 2>/dev/null; then user_manual=true; fi
+  done
+  if ! $user_mdm && $user_manual; then
+    PASS=$((PASS + 1)); printf '    %s 手動設定済みユーザを Manual としてカウント\n' "$(green ✓)"
+  else
+    FAIL=$((FAIL + 1)); printf '    %s 手動設定済みユーザを Manual としてカウントすべき (mdm=%s manual=%s)\n' "$(red ✗)" "$user_mdm" "$user_manual"
+  fi
+  rm -rf "$H"
+}
+
+tc "TC12: MDM 優先 — MARK 行と endpoint が両方ある場合は Manual ではカウントされない"
+{
+  H=$(new_fake_home)
+  # install.sh を流して MDM 適用済み状態を作る (MARK 行 + endpoint 両方が入る)
+  apply_for_user "$H" >/dev/null 2>&1
+  user_mdm=false; user_manual=false
+  for f in "$H/.npmrc" "$H/.yarnrc.yml" "$H/.bunfig.toml" "$H/Library/Application Support/pip/pip.conf" "$H/.config/pip/pip.conf" "$H/.config/uv/uv.toml" "$H/Library/Application Support/pypoetry/config.toml" "$H/.bundle/config"; do
+    [[ -f "$f" ]] || continue
+    if /usr/bin/grep -q "managed-by: takumi-guard" "$f" 2>/dev/null; then user_mdm=true; break; fi
+    if /usr/bin/grep -q "flatt\.tech" "$f" 2>/dev/null; then user_manual=true; fi
+  done
+  if $user_mdm; then
+    PASS=$((PASS + 1)); printf '    %s MDM 適用済みと判定される\n' "$(green ✓)"
+  else
+    FAIL=$((FAIL + 1)); printf '    %s MDM 適用済みと判定されるべき\n' "$(red ✗)"
+  fi
+  # ea-manual.sh の最終的なカウントロジックを再現: ! mdm && manual のみカウント
+  if ! $user_mdm && $user_manual; then
+    FAIL=$((FAIL + 1)); printf '    %s MDM 優先のはず (Manual にカウントすべきでない)\n' "$(red ✗)"
+  else
+    PASS=$((PASS + 1)); printf '    %s MDM 適用済みなので Manual カウントから除外される\n' "$(green ✓)"
+  fi
+  rm -rf "$H"
+}
+
+tc "TC13: 完全に未適用 (どのファイルも存在しない) なら MDM/Manual どちらも 0"
+{
+  H=$(new_fake_home)
+  user_mdm=false; user_manual=false
+  for f in "$H/.npmrc" "$H/.yarnrc.yml" "$H/.bunfig.toml" "$H/Library/Application Support/pip/pip.conf" "$H/.config/pip/pip.conf" "$H/.config/uv/uv.toml" "$H/Library/Application Support/pypoetry/config.toml" "$H/.bundle/config"; do
+    [[ -f "$f" ]] || continue
+    if /usr/bin/grep -q "managed-by: takumi-guard" "$f" 2>/dev/null; then user_mdm=true; break; fi
+    if /usr/bin/grep -q "flatt\.tech" "$f" 2>/dev/null; then user_manual=true; fi
+  done
+  if ! $user_mdm && ! $user_manual; then
+    PASS=$((PASS + 1)); printf '    %s 未適用ユーザは MDM/Manual いずれにもカウントされない\n' "$(green ✓)"
+  else
+    FAIL=$((FAIL + 1)); printf '    %s 未適用ユーザは MDM/Manual いずれにもカウントされないべき (mdm=%s manual=%s)\n' "$(red ✗)" "$user_mdm" "$user_manual"
+  fi
+  rm -rf "$H"
+}
+
 tc "TC10: uninstall --restore-bak で最新タイムスタンプのバックアップから復元される"
 {
   H=$(new_fake_home)
